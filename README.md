@@ -1,0 +1,1 @@
+A Python client for the Nexpose API.  It was originally taken from the Rapid7 Splunk app file "pnexpose.py".  It will be modified as neeed for internal use.
