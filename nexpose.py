@@ -14,46 +14,68 @@ def dump(obj):
 
 
 # Creates class for the client
-class nexposeClient():
-    def __init__(self, server, port, username, password, logger, apiver):
-        """ nexposeClient Class init call """
+class Client():
+    def __init__(self, server='', port = 3780, username='', password='', logger=None):
+        """ Client Class init call """
         self.server = server
         self.port = port
         self.username = username
         self.password = password
         self.url = 'https://{0}:{1}'.format(self.server, self.port)
-        self.version = apiver
-        self.api = '/api/1.1/xml'
-        self.authtoken = ''
+        # self.version = apiver  << remove once determine not necessary
+        self.api_v11 = '/api/1.1/xml'
+        self.api_v12 = '/api/1.2/xml'
+        self.authtoken = None
         self.logger = logger
 
         # force urllib2 to not use a proxy
         proxy_handler = urllib2.ProxyHandler({})
         opener = urllib2.build_opener(proxy_handler)
         urllib2.install_opener(opener)
-        self.login()
+        # self.login()  Remove from init - now must explicitly call it (b/c it's different for each api ver)
 
-    # Gets called in __init__
-    def login(self):
+    # Request parser
+    def request(self, call, **params):
+        """ Processes a Request for an API call """
+        xml = etree.Element(call + "Request")
+
+        # if it has a token it adds it to the request
+        if self.authtoken:
+            xml.set('session-id', self.authtoken)
+            xml.set('sync-id', str(random.randint(1, 65535)))  # seems like this could cause duplicate "request ID's"
+
+        # parses parameters from calls
+        for param, value in params.iteritems():
+            xml.set(param, str(value))
+
+        # makes request and returns response
+        data = etree.tostring(xml)
+        request = urllib2.Request(self.url + self.api_ver, data)
+        request.add_header('Content-Type', 'text/xml')
+
+        response = urllib2.urlopen(request)
+        response = etree.XML(response.read())
+        return response
+
+    def login(self, api_ver='1.1'):
         """ logs you into the device """
-        response = self.request("Login", {'user-id': self.username, 'password': self.password})
+        response = self.request("Login")
         self.authtoken = response.attrib['session-id']
 
     def get_auth_token(self):
         return self.authtoken
 
-    # Contains custom request
     def adhoc_report(self, query, site_ids):
         """Takes in a query object in the for of SQL and an array with site ids"""
         response = self.ad_hoc_report_request("ReportAdhocGenerate", query, site_ids)
         return response
 
     def asset_group_config(self, groupid):
-        response = self.request("SiteConfig", {"group-id": groupid})
+        response = self.request("SiteConfig")
         return etree.tostring(response)
 
     def asset_group_delete(self, groupid):
-        response = self.request("AssetGroupDelete", {"group-id": groupid})
+        response = self.request("AssetGroupDelete")
         return etree.tostring(response)
 
     def asset_group_listing(self):
@@ -61,11 +83,11 @@ class nexposeClient():
         return etree.tostring(response)
 
     def asset_group_save(self, groupid):
-        response = self.request("AssetGroupSave", {"group-id": groupid})
+        response = self.request("AssetGroupSave")
         return etree.tostring(response)
 
     def device_delete(self, deviceid):
-        response = self.request("DeviceDelete", {"device-id": deviceid})
+        response = self.request("DeviceDelete")
         return etree.tostring(response)
 
     def download_report(self, reporturl):
@@ -76,7 +98,7 @@ class nexposeClient():
         return resxml
 
     def engine_activity(self, engineid):
-        response = self.request("EngineActivity", {"engine-id": engineid})
+        response = self.request("EngineActivity")
         return etree.tostring(response)
 
     def engine_listing(self):
@@ -88,7 +110,7 @@ class nexposeClient():
         return response.attrib['success']
 
     def report_generate(self, reportid):
-        response = self.request("ReportConfig", {'report-id': reportid})
+        response = self.request("ReportConfig")
         return etree.tostring(response)
 
     def report_listing(self):
@@ -100,7 +122,7 @@ class nexposeClient():
         return etree.tostring(response)
 
     def report_history(self, reportcfgid):
-        response = self.request("ReportHistory", {'reportcfg-id': reportcfgid})
+        response = self.request("ReportHistory")
         return etree.tostring(response)
 
     def restart(self):
@@ -112,35 +134,35 @@ class nexposeClient():
         return etree.tostring(response)
 
     def scan_pause(self, scanid):
-        response = self.request("ScanPause", {'scan-id': scanid})
+        response = self.request("ScanPause")
         return etree.tostring(response)
 
     def scan_resume(self, scanid):
-        response = self.request("ScanResume", {'scan-id': scanid})
+        response = self.request("ScanResume")
         return etree.tostring(response)
 
     def scan_statistics(self, scanid):
-        response = self.request("ScanStatistics", {'scan-id': scanid})
+        response = self.request("ScanStatistics")
         return etree.tostring(response)
 
     def scan_status(self, scanid):
-        response = self.request("ScanStatus", {'scan-id': scanid})
+        response = self.request("ScanStatus")
         return etree.tostring(response)
 
     def scan_stop(self, scanid):
-        response = self.request("ScanStop", {'scan-id': scanid})
+        response = self.request("ScanStop")
         return etree.tostring(response)
 
     def site_config(self, siteid):
-        response = self.request("SiteConfig", {"site-id": siteid})
+        response = self.request("SiteConfig")
         return etree.tostring(response)
 
     def site_delete(self, siteid):
-        response = self.request("SiteDelete", {"site-id": siteid})
+        response = self.request("SiteDelete")
         return etree.tostring(response)
 
     def site_device_listing(self, siteid):
-        response = self.request("SiteDeviceListing", {"site-id": siteid})
+        response = self.request("SiteDeviceListing")
         return etree.tostring(response)
 
     def site_name_listing(self):
@@ -152,11 +174,11 @@ class nexposeClient():
         return response.xpath("/SiteListingResponse/SiteSummary/@id")
 
     def site_scan(self, siteid):
-        response = self.request("SiteScan", {"site-id": siteid})
+        response = self.request("SiteScan")
         return etree.tostring(response)
 
     def site_scan_history(self, siteid):
-        response = self.request("SiteScanHistory", {"site-id": siteid})
+        response = self.request("SiteScanHistory")
         return etree.tostring(response)
 
     def system_update(self):
@@ -172,11 +194,11 @@ class nexposeClient():
         return etree.tostring(response)
 
     def user_config(self, userid):
-        response = self.request("UserConfig", {"id": userid})
+        response = self.request("UserConfig")
         return etree.tostring(response)
 
     def user_delete(self, userid):
-        response = self.request("UserDelete", {"id": userid})
+        response = self.request("UserDelete")
         return etree.tostring(response)
 
     def user_listing(self):
@@ -184,38 +206,15 @@ class nexposeClient():
         return etree.tostring(response)
 
     def vulnerability_details(self, vulnid):
-        response = self.request("VulnerabilityDetails", {"vuln-id": vulnid})
+        response = self.request("VulnerabilityDetails")
         return etree.tostring(response)
 
     def vulnerability_listing(self):
         response = self.request("VulnerabilityListing")
         return etree.tostring(response)
 
-    # Request parser
-    def request(self, call, parameters={}):
-        """ Processes a Request for an API call """
-        xml = etree.Element(call + "Request")
-
-        # if it has a token it adds it to the request
-        if (self.authtoken != ''):
-            xml.set('session-id', self.authtoken)
-            xml.set('sync-id', str(random.randint(1, 65535)))
-
-        # parses parameters from calls
-        for param, value in parameters.iteritems():
-            xml.set(param, str(value))
-
-        # makes request and returns response
-        data = etree.tostring(xml)
-        request = urllib2.Request(self.url + self.api, data)
-        request.add_header('Content-Type', 'text/xml')
-
-        response = urllib2.urlopen(request)
-        response = etree.XML(response.read())
-        return response
-
-    # adhoc report request parser
     def ad_hoc_report_request(self, call, query, site_id=[]):
+        # adhoc report request parser
         self.logger.info("In AdHoc generate")
         """ Processes a Request for an API call """
         # Could be integrated into regular request, although it could complicate that function
@@ -265,7 +264,7 @@ class nexposeClient():
         # flatten the xml object
         data = etree.tostring(xml)
         self.logger.info("Making Query:\n" + data)
-        request = urllib2.Request(self.url + self.api, data)
+        request = urllib2.Request(self.url + self.api_ver, data)
         request.add_header('Content-Type', 'application/xml')
 
         # make request
@@ -294,8 +293,8 @@ class nexposeClient():
                 return None
         self.logger.info("Leaving AdHoc generate")
 
-    # adhoc report request parser
     def setup_adhoc_report_request(self, call, query, site_id=[]):
+        # adhoc report request parser
         lock = threading.RLock()
         lock.acquire()
         try:
@@ -348,7 +347,7 @@ class nexposeClient():
             # flatten the xml object
             data = etree.tostring(xml)
             self.logger.info("Making Query:\n" + data)
-            request = urllib2.Request(self.url + self.api, data)
+            request = urllib2.Request(self.url + self.api_ver, data)
             request.add_header('Content-Type', 'application/xml')
             return request
         finally:
