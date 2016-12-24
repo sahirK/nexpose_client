@@ -1,6 +1,7 @@
 # !/bin/python
 
 import urllib2
+import requests
 from lxml import etree
 import random
 import base64
@@ -14,29 +15,30 @@ def dump(obj):
 
 
 # Creates class for the client
-class Client():
-    def __init__(self, server='', port = 3780, username='', password='', logger=None):
+class Client:
+    def __init__(self, server='', port=3780, api_ver='1.1', username='', password='', logger=None):
         """ Client Class init call """
         self.server = server
         self.port = port
         self.username = username
         self.password = password
-        self.url = 'https://{0}:{1}'.format(self.server, self.port)
+        self.api_ver = api_ver
+        self.url_prefix = 'https://{}:{}/api/'.format(self.server, self.port)
         # self.version = apiver  << remove once determine not necessary
-        self.api_v11 = '/api/1.1/xml'
-        self.api_v12 = '/api/1.2/xml'
         self.authtoken = None
         self.logger = logger
 
         # force urllib2 to not use a proxy
-        proxy_handler = urllib2.ProxyHandler({})
-        opener = urllib2.build_opener(proxy_handler)
-        urllib2.install_opener(opener)
+        # proxy_handler = urllib2.ProxyHandler({})  << switching to requests, though may need similar?
+        # opener = urllib2.build_opener(proxy_handler)
+        # urllib2.install_opener(opener)
         # self.login()  Remove from init - now must explicitly call it (b/c it's different for each api ver)
 
     # Request parser
-    def request(self, call, **params):
+    def request(self, call, api_ver='1.1', **params):
         """ Processes a Request for an API call """
+        url = self.url_prefix + api_ver + '/xml' \
+                                          ''
         xml = etree.Element(call + "Request")
 
         # if it has a token it adds it to the request
@@ -50,11 +52,18 @@ class Client():
 
         # makes request and returns response
         data = etree.tostring(xml)
-        request = urllib2.Request(self.url + self.api_ver, data)
-        request.add_header('Content-Type', 'text/xml')
+        headers = {'content-type':'text/xml'}
+        print url
+        print headers
+        print data
+        response = requests.post(self.url_prefix + self.api_ver, data=data, headers=headers)
+        # r = urllib2.Request(self.url + self.api_ver, data)
+        # r.add_header('Content-Type', 'text/xml')
 
-        response = urllib2.urlopen(request)
-        response = etree.XML(response.read())
+        # response = urllib2.urlopen(r)
+        # response = etree.XML(response.read())
+        response = etree.XML(response)
+        # return response
         return response
 
     def login(self, api_ver='1.1'):
@@ -264,7 +273,7 @@ class Client():
         # flatten the xml object
         data = etree.tostring(xml)
         self.logger.info("Making Query:\n" + data)
-        request = urllib2.Request(self.url + self.api_ver, data)
+        request = urllib2.Request(self.url_prefix + self.api_ver, data)
         request.add_header('Content-Type', 'application/xml')
 
         # make request
@@ -347,7 +356,7 @@ class Client():
             # flatten the xml object
             data = etree.tostring(xml)
             self.logger.info("Making Query:\n" + data)
-            request = urllib2.Request(self.url + self.api_ver, data)
+            request = urllib2.Request(self.url_prefix + self.api_ver, data)
             request.add_header('Content-Type', 'application/xml')
             return request
         finally:
