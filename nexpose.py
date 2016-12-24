@@ -6,6 +6,7 @@ from lxml import etree
 import random
 import base64
 import threading
+import sys
 
 
 # Dump Object Function
@@ -16,27 +17,44 @@ def dump(obj):
 
 # Creates class for the client
 class Client:
-    def __init__(self, server='', port=3780, api_ver='1.1', username='', password='', logger=None):
+    def __init__(self, server='', port=3780, api_ver='1.1', username='', password='',
+                 validate_certs=True, cert_store=None, logger=None):
+        print 'Client.init:cert_store: ', cert_store
+        print 'Client.init:validate_certs', validate_certs
+        if validate_certs and cert_store is None:
+            sys.exit('**Nexpose client init failed:\n    Cert validation enabled but no cert store provided...exiting')
+
         self.server = server
         self.port = port
         self.username = username
         self.password = password
-        self.api_ver = api_ver
+        self.api_ver = api_ver  # todo determine if this is still required
         self.url_prefix = 'https://{}:{}/api/'.format(self.server, self.port)
-        # self.version = apiver  << remove once determine not necessary
         self.authtoken = None
+        self.validate_certs = validate_certs
+        self.cert_store = cert_store
         self.logger = logger
 
-        # force urllib2 to not use a proxy
-        # proxy_handler = urllib2.ProxyHandler({})  << switching to requests, though may need similar?
-        # opener = urllib2.build_opener(proxy_handler)
-        # urllib2.install_opener(opener)
-        # self.login()  Remove from init - now must explicitly call it (b/c it's different for each api ver)
+    def request_generator(self, call, api_ver='1.1', **attribs):
+        """
+        construct API requests in the appropriate format
 
-    def request_parser(self, call, api_ver='1.1', **params):
-        """ Processes a Request for an API call """
-        url = self.url_prefix + api_ver + '/xml' \
-                                          ''
+        the api URL is of the form: https://<srv>:<port>/api/<ver>/xml.  The API is XML based (not RESTful).  All
+        actions are of the form: <action>{Request,Response}, e.g. for <action> = Login the actions are:
+        LoginReqeust or LoginResponse.  Of course that has to be modled into some XML to be sent to the server.  It
+        appears that all action parameters are attributes (NB: I've seen only a very small subset of the API actions).
+        Use lxml.etree to build up requests/actions.
+
+        There are two versions of the API: 1.1 and 1.2.  There is very little overlap, 1.2. is very nearly a disjoint
+        extension of 1.1.  They overlap for Login actions (and ???).  The versions are validated differently, 1.1 is
+        via DTD's and 1.2 is via XML schemas.  The nexpose class is being updated to switch between the two on demand.
+
+        :param call: name of the action, e.g. Login
+        :param api_ver: which version of the API to use, currently {'1.1', '1.2'}
+        :param attribs: dict of key, value pairs that will become element attributes in the request XML
+        :return: string of XML containing values of interest
+        """
+        url = self.url_prefix + api_ver + '/xml'
         xml = etree.Element(call + "Request")
 
         # if it has a token it adds it to the request
@@ -44,29 +62,19 @@ class Client:
             xml.set('session-id', self.authtoken)
             xml.set('sync-id', str(random.randint(1, 65535)))  # seems like this could cause duplicate "request ID's"
 
-        # parses parameters from calls
-        for param, value in params.iteritems():
-            xml.set(param, str(value))
+        # adds attributes to api action/request
+        for attrib, value in attribs.iteritems():
+            xml.set(attrib, str(value))
 
         # makes request and returns response
         data = etree.tostring(xml)
-        headers = {'content-type':'text/xml'}
-        print url
-        print headers
-        print data
-        response = requests.post(self.url_prefix + self.api_ver, data=data, headers=headers)
-        # r = urllib2.Request(self.url + self.api_ver, data)
-        # r.add_header('Content-Type', 'text/xml')
-
-        # response = urllib2.urlopen(r)
-        # response = etree.XML(response.read())
-        response = etree.XML(response)
-        # return response
-        return response
+        headers = {'content-type': 'text/xml'}
+        response = requests.post(url, data=data, headers=headers, verify=self.cert_store)
+        return etree.XML(response.content)
 
     def login(self, api_ver='1.1'):
-        """ logs you into the device """
-        response = self.request_parser("Login")
+        attribs = {'user-id': self.username, 'password': self.password}
+        response = self.request_generator('Login', **attribs)
         self.authtoken = response.attrib['session-id']
 
     def get_auth_token(self):
@@ -78,23 +86,23 @@ class Client:
         return response
 
     def asset_group_config(self, groupid):
-        response = self.request_parser("SiteConfig")
+        response = self.request_generator("SiteConfig")
         return etree.tostring(response)
 
     def asset_group_delete(self, groupid):
-        response = self.request_parser("AssetGroupDelete")
+        response = self.request_generator("AssetGroupDelete")
         return etree.tostring(response)
 
     def asset_group_listing(self):
-        response = self.request_parser("AssetGroupListing")
+        response = self.request_generator("AssetGroupListing")
         return etree.tostring(response)
 
     def asset_group_save(self, groupid):
-        response = self.request_parser("AssetGroupSave")
+        response = self.request_generator("AssetGroupSave")
         return etree.tostring(response)
 
     def device_delete(self, deviceid):
-        response = self.request_parser("DeviceDelete")
+        response = self.request_generator("DeviceDelete")
         return etree.tostring(response)
 
     def download_report(self, reporturl):
@@ -105,119 +113,119 @@ class Client:
         return resxml
 
     def engine_activity(self, engineid):
-        response = self.request_parser("EngineActivity")
+        response = self.request_generator("EngineActivity")
         return etree.tostring(response)
 
     def engine_listing(self):
-        response = self.request_parser("EngineListing")
+        response = self.request_generator("EngineListing")
         return etree.tostring(response)
 
     def logout(self):
-        response = self.request_parser("Logout")
+        response = self.request_generator("Logout")
         return response.attrib['success']
 
     def report_generate(self, reportid):
-        response = self.request_parser("ReportConfig")
+        response = self.request_generator("ReportConfig")
         return etree.tostring(response)
 
     def report_listing(self):
-        response = self.request_parser("ReportListing")
+        response = self.request_generator("ReportListing")
         return etree.tostring(response)
 
     def report_template_listing(self):
-        response = self.request_parser("ReportTemplateListing")
+        response = self.request_generator("ReportTemplateListing")
         return etree.tostring(response)
 
     def report_history(self, reportcfgid):
-        response = self.request_parser("ReportHistory")
+        response = self.request_generator("ReportHistory")
         return etree.tostring(response)
 
     def restart(self):
-        response = self.request_parser("Restart")
+        response = self.request_generator("Restart")
         return etree.tostring(response)
 
     def scan_activity(self):
-        response = self.request_parser("ScanActivity")
+        response = self.request_generator("ScanActivity")
         return etree.tostring(response)
 
     def scan_pause(self, scanid):
-        response = self.request_parser("ScanPause")
+        response = self.request_generator("ScanPause")
         return etree.tostring(response)
 
     def scan_resume(self, scanid):
-        response = self.request_parser("ScanResume")
+        response = self.request_generator("ScanResume")
         return etree.tostring(response)
 
     def scan_statistics(self, scanid):
-        response = self.request_parser("ScanStatistics")
+        response = self.request_generator("ScanStatistics")
         return etree.tostring(response)
 
     def scan_status(self, scanid):
-        response = self.request_parser("ScanStatus")
+        response = self.request_generator("ScanStatus")
         return etree.tostring(response)
 
     def scan_stop(self, scanid):
-        response = self.request_parser("ScanStop")
+        response = self.request_generator("ScanStop")
         return etree.tostring(response)
 
     def site_config(self, siteid):
-        response = self.request_parser("SiteConfig")
+        response = self.request_generator("SiteConfig")
         return etree.tostring(response)
 
     def site_delete(self, siteid):
-        response = self.request_parser("SiteDelete")
+        response = self.request_generator("SiteDelete")
         return etree.tostring(response)
 
     def site_device_listing(self, siteid):
-        response = self.request_parser("SiteDeviceListing")
+        response = self.request_generator("SiteDeviceListing")
         return etree.tostring(response)
 
     def site_name_listing(self):
-        response = self.request_parser("SiteListing")
+        response = self.request_generator("SiteListing")
         return response.xpath("/SiteListingResponse/SiteSummary/@name")
 
     def site_id_listing(self):
-        response = self.request_parser("SiteListing")
+        response = self.request_generator("SiteListing")
         return response.xpath("/SiteListingResponse/SiteSummary/@id")
 
     def site_scan(self, siteid):
-        response = self.request_parser("SiteScan")
+        response = self.request_generator("SiteScan")
         return etree.tostring(response)
 
     def site_scan_history(self, siteid):
-        response = self.request_parser("SiteScanHistory")
+        response = self.request_generator("SiteScanHistory")
         return etree.tostring(response)
 
     def system_update(self):
-        response = self.request_parser("SystemUpdate")
+        response = self.request_generator("SystemUpdate")
         return etree.tostring(response)
 
     def system_information(self):
-        response = self.request_parser("SystemInformation")
+        response = self.request_generator("SystemInformation")
         return etree.tostring(response)
 
     def user_authenticator_listing(self):
-        response = self.request_parser("UserAuthenticatorListing")
+        response = self.request_generator("UserAuthenticatorListing")
         return etree.tostring(response)
 
     def user_config(self, userid):
-        response = self.request_parser("UserConfig")
+        response = self.request_generator("UserConfig")
         return etree.tostring(response)
 
     def user_delete(self, userid):
-        response = self.request_parser("UserDelete")
+        response = self.request_generator("UserDelete")
         return etree.tostring(response)
 
     def user_listing(self):
-        response = self.request_parser("UserListing")
+        response = self.request_generator("UserListing")
         return etree.tostring(response)
 
     def vulnerability_details(self, vulnid):
-        response = self.request_parser("VulnerabilityDetails")
+        response = self.request_generator("VulnerabilityDetails")
         return etree.tostring(response)
 
     def vulnerability_listing(self):
-        response = self.request_parser("VulnerabilityListing")
+        response = self.request_generator("VulnerabilityListing")
         return etree.tostring(response)
 
     def ad_hoc_report_request(self, call, query, site_id=[]):
@@ -228,7 +236,7 @@ class Client:
         xml = etree.Element(call + "Request")
 
         # if it has a token it adds it to the request
-        if (self.authtoken != ''):
+        if self.authtoken != '':
             xml.set('session-id', self.authtoken)
             xml.set('sync-id', str(random.randint(1, 65535)))
 
